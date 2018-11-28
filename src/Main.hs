@@ -17,7 +17,7 @@ import Data.Functor ((<$>))
 import Data.IORef (IORef, newIORef, readIORef, modifyIORef')
 import Data.List (intercalate)
 import Data.Maybe (Maybe(..))
-import Data.Primitive.PrimArray (MutablePrimArray, newPrimArray, readPrimArray, writePrimArray)
+import Data.Primitive.PrimArray (MutablePrimArray, newPrimArray, readPrimArray, writePrimArray, setPrimArray)
 import Data.Semigroup ((<>))
 import Data.Word (Word8, Word16)
 import GHC.Err (error)
@@ -26,7 +26,7 @@ import GHC.Prim (RealWorld)
 import GHC.Real (fromIntegral)
 import GHC.Show (Show)
 import GHC.Types (Int)
-import System.IO (hGetChar, stdin, putChar, print)
+import System.IO (hGetChar, stdin, putChar)
 import Text.Read (readMaybe)
 import qualified GHC.Num
 
@@ -44,7 +44,9 @@ execute mem ptr = forM_ bfComps (\f -> f mem ptr)
 
 newArray :: IO Array
 newArray = do
-  !arr <- newPrimArray 30000
+  let !len = 30000
+  !arr <- newPrimArray len
+  setPrimArray arr 0 len 0 
   pure (Array arr)
 
 newPtr :: IO Index
@@ -81,9 +83,8 @@ dot :: Array -> Index -> IO ()
 dot (Array arr) (Index index) = do
   !ix <- w2i <$> readIORef index
   !val <- readPrimArray arr ix
-  print val 
---  putChar (asciiChar val)
---  putChar '\n'
+  putChar (asciiChar val)
+  putChar '\n'
 
 comma :: Array -> Index -> IO ()
 comma (Array arr) (Index index) = do
