@@ -1,8 +1,11 @@
 *.ghc*
-*dist*
-*dist-newstyle*
+.dist/
+.dist-newstyle/
 *.swo
 *.swp
 *.swa
 *.ps
 result*
+.inplace/
+*.o
+*.out

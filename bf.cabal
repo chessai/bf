@@ -1,23 +1,56 @@
-name:                bf
-version:             0.1.0.0
-synopsis:            compile bf
+cabal-version: 2.2
+name:
+  bf
+version:
+  0.1
+synopsis:
+  optimising brainfuck compiler
 -- description:
-homepage:            https://github.com/chessai/bf
-license:             BSD3
-license-file:        LICENSE
-author:              chessai
-maintainer:          chessai1996@gmail.com
--- copyright:
--- category:
-build-type:          Simple
-extra-source-files:  CHANGELOG.md
-cabal-version:       >=1.10
+homepage:
+  https://github.com/chessai/bf
+license:
+  BSD-3-Clause
+license-file:
+  LICENSE
+author:
+  chessai
+maintainer:
+  chessai <chessai1996@gmail.com>
+copyright:
+  copyright 2020 chessai
+category:
+  Compiler, Compilers, Brainfuck, Text
+build-type:
+  Simple
+extra-source-files:
+  CHANGELOG.md
 
 executable bf
-  main-is:             Main.hs
-  -- other-modules:
-  -- other-extensions:
-  build-depends:       base >=4.7 && <4.15, primitive >= 0.6.4.0, transformers, mtl, primitive-atomic, megaparsec, unix, temporary, optparse-applicative
-  hs-source-dirs:      src
-  default-language:    Haskell2010
---  ghc-options: -ddump-simpl -fforce-recomp -dsuppress-all -fno-worker-wrapper
+  main-is:
+    Main.hs
+  other-modules:
+    AST
+    Compile
+    Interpreter
+    Optimiser
+    Parser
+    Pretty
+    RegAlloc
+    UI
+  build-depends:
+    , base >=4.7 && <4.15
+    , containers
+    , megaparsec
+    , mtl
+    , optparse-applicative
+    , primitive >= 0.6.4.0 && < 0.9
+    , primitive-atomic
+    , temporary
+    , transformers
+    , unix
+  hs-source-dirs:
+    src
+  default-language:
+    Haskell2010
+  ghc-options:
+    -Wall -O2
