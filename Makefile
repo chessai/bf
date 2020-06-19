@@ -3,11 +3,11 @@ match =
 flags =
 
 configure:
-	cabal configure
+	cabal configure -v0
 	rm cabal.project.local*
 
 build: configure
-	cabal build
+	cabal build -v0
 	cp `find dist-newstyle/ -executable -type f -name 'bf' | head -n 1` .inplace/bf
 
 run: configure build
@@ -18,6 +18,7 @@ test: configure
 
 clean:
 	cabal clean
+	rm -f *.out
 
 ghci: configure
 	cabal repl exe:bf
