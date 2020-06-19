@@ -16,10 +16,11 @@ import Control.Monad.Reader (ReaderT, runReaderT)
 import Control.Monad.Reader.Class (ask)
 import Control.Monad.State.Class (modify, get)
 import Control.Monad.State.Strict (StateT, evalStateT)
-import Data.Char (chr)
+import Data.Char (chr, ord)
 import Data.Primitive.ByteArray
 import Data.Word (Word8, Word16)
 import GHC.Exts (RealWorld)
+import System.IO (hFlush, stdout)
 
 import AST
 
@@ -65,9 +66,11 @@ interpreter = mapM_ interpreter'
         index <- get
         buffer <- ask
         val <- readByteArray @Word8 buffer (fromIntegral index)
-        liftIO $ putStrLn [asciiChar val]
+        liftIO $ do
+          putChar (asciiChar val)
+          hFlush stdout
       Comma -> do
-        byte <- liftIO $ readLn @Word8
+        byte <- liftIO (charToByte <$> getChar)
         index <- get
         buffer <- ask
         writeByteArray buffer (fromIntegral index) byte
@@ -86,6 +89,9 @@ interpreter = mapM_ interpreter'
           old <- readByteArray @Word8 buffer ix
           writeByteArray @Word8 buffer ix (old + byte)
         interpreter' Clear
+
+charToByte :: Char -> Word8
+charToByte = fromIntegral . ord
 
 asciiChar :: Word8 -> Char
 asciiChar = chr . fromIntegral

@@ -2,7 +2,6 @@
 
 module Compile
   ( compile
-  , Target(..)
   ) where
 
 import Data.Maybe
@@ -11,11 +10,8 @@ import System.IO.Temp (writeSystemTempFile)
 import System.Posix.Process (executeFile)
 
 import AST
+import UI (Target(..))
 import Pretty
-
-data Target
-  = TargetC99
-  | TargetASM
 
 compileToC :: ()
   => Program

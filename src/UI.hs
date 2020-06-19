@@ -1,8 +1,12 @@
+{-# language LambdaCase #-}
+
 module UI
   ( ui
   , Options(..)
-  , Input(..)
+  , Target(..)
   ) where
+
+import Data.Char (toLower)
 
 import qualified Options.Applicative as O
 
@@ -15,9 +19,9 @@ ui = O.execParser opts
       )
     desc = "bf - an optimising brainfuck compiler and interpreter."
 
-data Input
-  = InputFile FilePath
-  | InputStdin String
+data Target
+  = TargetC99
+  | TargetASM
 
 data Options = Options
   { input :: FilePath
@@ -28,8 +32,8 @@ data Options = Options
     -- ^ interpret only, don't compile
   , bufferSize :: Int
     -- ^ cell size of the tape buffer
-  , asm :: Bool
-    -- ^ whether or not to skip $CC
+  , target :: Target
+    -- ^ compilation target
   }
 
 programInput :: O.Parser FilePath
@@ -78,12 +82,26 @@ programBufferSize = O.option O.auto
   <> O.help "program buffer size"
   )
 
-programAsm :: O.Parser Bool
-programAsm = O.switch
-  ( O.long "asm"
-  <> O.showDefault
-  <> O.help "do not use $CC; produce assembly directly"
+programTarget :: O.Parser Target
+programTarget = O.option parseTarget
+  ( O.long "target"
+  <> O.short 't'
+  <> O.value TargetC99
+  <> O.showDefaultWith showTarget
+  <> O.help "compilation target"
   )
+  where
+    parseTarget = O.eitherReader $ \s -> case map toLower s of
+      "c99" -> Right TargetC99
+      "c"   -> Right TargetC99
+
+      "asm" -> Right TargetASM
+
+      _     -> Left $ "Unknown Target: " ++ s
+
+    showTarget = \case
+      TargetC99 -> "C99"
+      TargetASM -> "x86_64 Assembly"
 
 parseOptions :: O.Parser Options
 parseOptions = Options
@@ -91,4 +109,4 @@ parseOptions = Options
   <*> programOutput
   <*> programInterpret
   <*> programBufferSize
-  <*> programAsm
+  <*> programTarget

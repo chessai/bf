@@ -34,5 +34,3 @@ parser = many $ choice
   , Loop         <$> between (char '[') (char ']') parser
   , Whitespace   <$  noneOf "+-<>.,[]"
   ]
-
-
