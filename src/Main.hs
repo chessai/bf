@@ -25,9 +25,9 @@ import UI
 
 main :: IO ()
 main = do
-  Options{..} <- ui
+  o@Options{..} <- ui
   program <- optimise <$> doParse input
   if | interpretOnly -> do
          interpret program
      | otherwise -> do
-         compile program output bufferSize TargetC99
+         driver program o

@@ -22,6 +22,7 @@ ui = O.execParser opts
 data Target
   = TargetC99
   | TargetASM
+  | TargetHaskell98
 
 data Options = Options
   { input :: FilePath
@@ -97,11 +98,17 @@ programTarget = O.option parseTarget
 
       "asm" -> Right TargetASM
 
-      _     -> Left $ "Unknown Target: " ++ s
+      "hs"      -> Right TargetHaskell98
+      "hs98"    -> Right TargetHaskell98
+      "haskell" -> Right TargetHaskell98
+      "haskal"  -> Right TargetHaskell98
+
+      _ -> Left $ "Unknown Target: " ++ s
 
     showTarget = \case
-      TargetC99 -> "C99"
-      TargetASM -> "x86_64 Assembly"
+      TargetC99       -> "C99"
+      TargetASM       -> "x86_64 Assembly"
+      TargetHaskell98 -> "Haskell 98"
 
 parseOptions :: O.Parser Options
 parseOptions = Options

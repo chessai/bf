@@ -40,6 +40,8 @@ executable bf
   build-depends:
     , base >=4.7 && <4.15
     , containers
+    , directory
+    , filepath
     , megaparsec
     , mtl
     , optparse-applicative
@@ -47,6 +49,7 @@ executable bf
     , primitive-atomic
     , temporary
     , transformers
+    , typed-process
     , unix
   hs-source-dirs:
     src
