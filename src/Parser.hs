@@ -4,6 +4,7 @@ module Parser
   ) where
 
 import Data.Bifunctor (first)
+import Data.Foldable
 import Data.Functor.Identity (Identity)
 import Data.Void (Void)
 import Text.Megaparsec hiding (State)
@@ -21,16 +22,26 @@ doParse progFile = do
 doParsePure :: FilePath -> String -> (Either String Program)
 doParsePure progFile progFileContents =
   first errorBundlePretty
-  $ runParser parser progFile progFileContents
+  $ runParser parser progFile
+  $ filter (`elem` "+-<>.,[]")
+  $ progFileContents
 
 parser :: Parser Program
-parser = many $ choice
-  [ MoveVal 1    <$  char '+'
-  , MoveVal (-1) <$  char '-'
-  , MovePtr 1    <$  char '>'
-  , MovePtr (-1) <$  char '<'
-  , Dot          <$  char '.'
-  , Comma        <$  char ','
-  , Loop         <$> between (char '[') (char ']') parser
-  , Whitespace   <$  noneOf "+-<>.,[]"
-  ]
+parser = bricks <|> pure Halt
+  where
+    bricks = fold <$> some brick
+    brick = (flip Instr Halt <$> instruction) <|> loop
+
+    loop = flip Loop Halt
+      <$> between (char '[') (char ']') bricks
+
+    instruction = choice
+      [ Jump 1    <$ char '>'
+      , Jump (-1) <$ char '<'
+
+      , Update 0 1    <$ char '+'
+      , Update 0 (-1) <$ char '-'
+
+      , Input  0 <$ char ','
+      , Output 0 <$ char '.'
+      ]

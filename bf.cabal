@@ -30,13 +30,13 @@ executable bf
     Main.hs
   other-modules:
     AST
-    Compile
-    Interpreter
+--    Compile
+--    Interpreter
     Optimiser
     Parser
-    Pretty
-    RegAlloc
-    UI
+--    Pretty
+--    RegAlloc
+--    UI
   build-depends:
     , base >=4.7 && <4.15
     , containers

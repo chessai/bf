@@ -28,7 +28,7 @@ pretty = concatMap go
 --    copy = fmap concat . traverse copy'
 --      where
 --        copy' i = do
-
+      Halt -> "[+]"
 
 indent :: Int -> String -> String
 indent n = unlines . map (replicate n ' ' ++) . lines

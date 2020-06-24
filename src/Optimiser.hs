@@ -1,36 +1,202 @@
-{-# language LambdaCase #-}
+{-# language
+    LambdaCase
+  , ScopedTypeVariables
+  , ViewPatterns
+#-}
 
 module Optimiser
   ( optimise
   ) where
 
+import Control.Monad ((>=>))
+import Data.Foldable (foldl')
+import Data.Map.Strict (Map)
+import Data.Set (Set)
+
+import qualified Data.Set as Set
+import qualified Data.Map.Strict as Map
+
 import AST
 
-optimise :: Program -> Program
-optimise = fixpoint optimise'
-  where
-    optimise' = id
-      . copyLoops
-      . clearLoops
-      . contraction
-      . stripWhitespace
+type Optimisation = Program -> Program
 
-fixpoint :: Eq a => (a -> a) -> a -> a
-fixpoint f x0 =
-  let x = f x0
-  in if x == x0
-       then x
-       else fixpoint f x
-
-stripWhitespace :: Program -> Program
-stripWhitespace = concatMap go
+optimise :: Optimisation
+optimise = fixEq op
   where
-    go :: BF -> [BF]
+    op = id
+      . eliminateClearLoops
+      . contract
+      . loopsToMul
+      -- . loopsToIfs
+
+-- m[p + x] = m[p + y] * 1
+-- m[p + y] = m[p + x] * 1
+dedupMulSet :: Optimisation
+dedupMulSet = go
+  where
     go = \case
-      Loop loop -> [Loop (filter (/= Whitespace) loop)]
-      Whitespace -> []
-      x -> [x]
+      x@(Instr i@(MulSet s d 1) (Instr (MulSet s' d' 1) r))
+        | d == s' && s == d' -> Instr i r
+        | otherwise -> x
+      Loop a b -> Loop (go a) (go b)
+      If a b -> Loop (go a) (go b)
+      x -> x
 
+loopsToMul :: Optimisation
+loopsToMul = go
+  where
+    go = \case
+      Loop (updateOrJump >=> simulate -> Just mul) r -> mul <> single (Set 0 0) <> r
+      If a b -> If (go a) (go b)
+      x -> x
+
+    updateOrJump :: Program -> Maybe Program
+    updateOrJump = \case
+      Halt -> Just Halt
+      Instr i@(Update _ _) r -> Just (Instr i r)
+      Instr i@(Jump _) r -> Just (Instr i r)
+      _ -> Nothing
+
+    simulate :: Program -> Maybe Program
+    simulate = analyse . foldl' computeDelta (Map.empty, 0)
+
+    computeDelta :: (Map Int Int, Int) -> Instruction -> (Map Int Int, Int)
+    computeDelta (deltas, offset) = \case
+      -- Updates change the value at the current offset + their offset
+      Update o n ->
+        let deltas' = Map.insertWith (+) (offset + o) n deltas
+        in (deltas', offset)
+      -- Jumps move the offset
+      Jump n -> (deltas, offset + n)
+      -- This shouldn't happen because of updateOrJump
+      _ -> error "Optimiser: loopsToMul: computeDelta: invariant violated"
+
+    analyse :: (Map Int Int, Int) -> Maybe Program
+    analyse (deltas, offset)
+      | offset /= 0 || Map.findWithDefault 0 offset deltas /= (-1) = Nothing
+      | otherwise = Just $ Map.foldrWithKey buildMul Halt (Map.delete 0 deltas)
+      where
+        buildMul off val = Instr (MulUpdate 0 off val)
+
+
+eliminateClearLoops :: Optimisation
+eliminateClearLoops = go
+  where
+    go = \case
+      -- A loop where we update an offset
+      -- repeatedly. If n is negative, this is
+      -- a clear loop. If n is 0 or positive, the
+      -- program should halt.
+      Loop (Instr (Update o n) Halt) r
+        | n < 0 -> Instr (Set o 0) r
+        | otherwise -> Halt
+      -- A clear loop that is evidently non-recursive
+      If (Instr (Set 0 0) Halt) r -> Instr (Set 0 0) r
+      -- Recurse into all other instructions
+      Instr i r -> Instr i (go r)
+      -- Everything else is gucci
+      x -> x
+
+loopsToIfs :: Optimisation
+loopsToIfs = go
+  where
+    go = \case
+      Loop (canTransform >=> simulate -> Just p) r -> If (p <> single (Set 0 0)) r
+      x -> x
+
+    canTransform :: Program -> Maybe Program
+    canTransform = \case
+      Halt -> Just Halt
+      Instr i@(ifElem -> True) r -> Just (Instr i r)
+      _ -> Nothing
+      where
+        ifElem = \case
+          Update _ _ -> True
+          Set n _ -> n /= 0
+          MulSet _ n _ -> n /= 0
+          MulUpdate _ n _ -> n /= 0
+          _ -> False
+
+    simulate :: Program -> Maybe Program
+    simulate = analyse . foldl' computeClears (Set.singleton 0, Halt, 0)
+
+    computeClears :: (Set Int, Program, Int) -> Instruction -> (Set Int, Program, Int)
+    computeClears (clears, prog, origin) = \case
+      Update o n
+        | o == 0 -> (clears, prog, origin + n)
+        | otherwise -> (,,)
+            (Set.delete o clears)
+            (prog <> single (MulUpdate 0 o n))
+            origin
+      i@(MulUpdate _ d _) -> (,,)
+        (Set.delete d clears)
+        (prog <> single i)
+        origin
+      i@(Set o n) ->
+        let clears' | n == 0 = Set.insert o clears
+                    | otherwise = Set.delete o clears
+            prog' = prog <> single i
+        in (clears', prog', origin)
+      _ -> error "Optimiser: loopsToIfs: computeClears: unexpected input"
+
+    analyse :: (Set Int, Program, Int) -> Maybe Program
+    analyse (clears, prog, n) = if n == (-1)
+      then check prog
+      else Nothing
+      where
+        check = \case
+          Halt -> Just Halt
+          Instr i@(cleared -> True) r -> Just (Instr i r)
+          _ -> Nothing
+
+        cleared = \case
+          MulSet s _ _ -> s `Set.member` clears
+          MulUpdate s _ _ -> s `Set.member` clears
+          _ -> True
+
+contract :: Optimisation
+contract = go
+  where
+    go = \case
+      -- Cannot optimise Halt, Input, or Output
+      Halt
+        -> Halt
+      Instr (Input o) rest
+        -> Instr (Input o) (go rest)
+      Instr (Output o) rest
+        -> Instr (Output o) (go rest)
+
+      -- Loops and Ifs just recurse
+      Loop as bs
+        -> Loop (go as) (go bs)
+      If as bs
+        -> If (go as) (go bs)
+
+      -- Combine double-jump
+      Instr (Jump m) (Instr (Jump n) r)
+        -> go (Instr (Jump (m + n)) r)
+      Instr (Jump m) rest
+        -> Instr (Jump m) (go rest)
+
+      -- Combine updates to the same offset
+      Instr (Update o m) rest@(Instr (Update o' n) r)
+        -> if o == o'
+           then go (Instr (Update o (m + n)) r)
+           else Instr (Update o m) (go rest)
+      Instr (Update o m) rest
+        -> Instr (Update o m) (go rest)
+
+      -- Remove redundant writes to the same address
+      Instr (Set o m) rest@(Instr (Set o' n) r)
+        -> if o == o'
+           then go (Instr (Set o n) r)
+           else Instr (Set o m) (go rest)
+      Instr (Set o m) rest
+        -> Instr (Set o m) (go rest)
+
+      x -> x
+
+{-
 -- | Contract consecutive moves to the same index, and afterward,
 --   remove 0-valued moves
 contraction :: Program -> Program
@@ -52,63 +218,95 @@ contraction = removeZeroMoves . contraction'
       Loop bfs : prog -> Loop (removeZeroMoves bfs) : removeZeroMoves prog
       x : prog -> x : removeZeroMoves prog
 
--- | Turn things like [-], [--], [---], etc. into a single write
-clearLoops :: Program -> Program
-clearLoops = map go
+
+contract :: Optimisation
+contract = mapBlocks instrEq go
   where
-    isSubVal :: BF -> Bool
-    isSubVal (MoveVal n) | n < 0 = True
-    isSubVal _ = False
+    go a@(Instr x _) =
+      let numInstrs = instrSum a
+      in case x of
+           Update o _ ->
+             case instrSum a of
+               0 -> Halt
+               n -> single (Update o n)
+           Set o n ->
+             single
+             $ Set o
+             $ maybe n instrVal
+             $ lastInstruction a
+           Jump _ ->
+             single
+             $ Jump numInstrs
+           MulUpdate s d _ ->
+             single
+             $ MulUpdate s d numInstrs
+           MulSet s d n ->
+             single
+             $ MulSet s d
+             $ maybe n instrVal
+             $ lastInstruction a
+           _ -> a
+    go _ = error "Optimiser: contract: unexpected input"
 
-    go :: BF -> BF
-    go = \case
-      Loop loop | all isSubVal loop -> Clear
-      x -> x
+groupBy :: (a -> a -> Bool) -> BF a -> BF (BF a)
+groupBy p = \case
+  Halt -> Halt
+  Loop as bs -> Loop (groupBy p as) (groupBy p bs)
+  If as bs -> If (groupBy p as) (groupBy p bs)
+  Instr x0 xs0 ->
+    let (ys, zs) = go p x0 xs0
+    in Instr (Instr x0 ys) zs
+    where
+      go q z = \case
+        Instr x xs ->
+          let (ys, zs) = go q x xs
+          in if q z x
+             then (Instr x ys, zs)
+             else (Halt, Instr (Instr x ys) zs)
+        Halt -> (Halt, Halt)
+        Loop as bs -> (Halt, Loop (groupBy p as) (groupBy p bs))
+        If as bs -> (Halt, If (groupBy p as) (groupBy p bs))
 
--- | Turn a loop which serves to copy the contents of a cell to one or more
---   others into one write per target.
---
---   Example input:
---     [->+>+<<]
---   Example output:
---     *(p + 1) += *p;
---     *(p + 2) += *p;
---     *p = 0;
---
---  A copy loop can be identified by the following criteria:
---
---    1. It does not contain another loop
---    2. Starts with @'MoveVal' (-1)@
---    3. Returns to the start index at the end
---    4. Does not modify the start cell except for the initial @'MoveVal' (-1)@
-copyLoops :: Program -> Program
-copyLoops = id
-{-
-map go
+mapBlocks :: (a -> a -> Bool) -> (BF a -> BF a) -> BF a -> BF a
+mapBlocks pr f = foldMap go . groupBy pr
   where
-    containsLoop :: [BF] -> Bool
-    containsLoop = any (\case { Loop _ -> True; _ -> False; })
-
-    startsWithNeg1 :: [BF] -> Bool
-    startsWithNeg1 = \case
-      [] -> False
-      (MoveVal (-1) : _) -> True
-      _ -> False
-
-    returnsToStartIndex :: [BF] -> Bool
-    returnsToStartIndex = (== 0) . getSum . foldMap gatherMovePtrs
-      where
-        gatherMovePtrs = \case
-          MovePtr n -> Sum n
-          _ -> 0
-
-    isCopyLoop :: [BF] -> Bool
-    isCopyLoop loop = not (containsLoop loop)
-      && startsWithNeg1 loop
-      && returnsToStartIndex loop
-
-    go :: BF -> BF
     go = \case
-      Loop loop -> undefined
-      x -> x
+      Halt -> Halt
+      Loop as bs -> Loop as bs
+      If as bs -> If as bs
+      Instr p r -> f (single p) <> r
+
+instrEq :: Instruction -> Instruction -> Bool
+instrEq a b = toConstr a == toConstr b && offsets a == offsets b
+  where
+    offsets :: Instruction -> Maybe (Either Int (Int, Int))
+    offsets = \case
+      Jump _ -> Nothing
+      Update o _ -> Just (Left o)
+      Set o _ -> Just (Left o)
+      MulUpdate s d _ -> Just (Right (s, d))
+      MulSet s d _ -> Just (Right (s, d))
+      Input o -> Just (Left o)
+      Output o -> Just (Left o)
+
+instrSum :: Program -> Int
+instrSum = getSum . foldMap (Sum . instrVal)
+
+instrVal :: Instruction -> Int
+instrVal = \case
+  Jump n -> n
+  Update _ n -> n
+  Set _ n -> n
+  MulUpdate _ _ n -> n
+  MulSet _ _ n -> n
+  _ -> 0
+
+lastInstruction :: BF a -> Maybe a
+lastInstruction = getLast . foldMap (Last . Just)
 -}
+
+single :: a -> BF a
+single x = Instr x Halt
+
+fixEq :: Eq a => (a -> a) -> a -> a
+fixEq f x = let x' = f x in if x == x' then x else fixEq f x'

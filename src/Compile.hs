@@ -35,7 +35,7 @@ import Pretty
 data STarget :: Target -> Type where
   STargetC99       :: STarget 'TargetC99
   --STargetASM       :: STarget 'TargetASM
-  STargetHaskell98 :: STarget 'TargetHaskell98
+  --STargetHaskell98 :: STarget 'TargetHaskell98
 
 data Phase
   = Source
@@ -63,6 +63,7 @@ class CompileTarget (target :: Target) where
 
   link :: STarget target -> SPhase 'Assemble -> CompileM (SPhase 'Link)
 
+{-
 instance CompileTarget 'TargetHaskell98 where
   compileToTarget _ program = do
     bufSize <- asks bufferSize
@@ -99,31 +100,7 @@ instance CompileTarget 'TargetHaskell98 where
         MovePtr n -> if n < 0
           then "modifyIORef' ptr (subtract " ++ show (abs n) ++ ")"
           else "modifyIORef' ptr (+ " ++ show n ++ ")"
-
-        MoveVal 1    -> "(*p)++;"
-        MoveVal (-1) -> "(*p)--;"
-        MoveVal n    -> if n < 0
-          then "*p = *p - " ++ show (abs n) ++ ";"
-          else "*p = *p + " ++ show n ++ ";"
-
-        Loop bfs -> concat
-          [ "while (*p) {\n"
-          , concatMap (indent 2 . go) bfs
-          , "}"
-          ]
-
-        Dot -> "putchar(*p);"
-
-        Comma -> "getchar(*p);"
-
-        Whitespace -> ""
-
-        Clear -> "*p = 0;"
-
-        Copy is -> concat
-          [ concatMap (\i -> indent 2 "*p = *p + " ++ show i) is
-          , indent 2 "*p = 0;"
-          ]
+-}
 
 instance CompileTarget 'TargetC99 where
   compileToTarget _ program = do
@@ -137,6 +114,8 @@ instance CompileTarget 'TargetC99 where
       header bufSize = unlines
         [ "#include <stdio.h>"
         , "#include <stdint.h>"
+        , "#include <stdlib.h>"
+        , ""
         , "int main() {"
         , "  uint8_t buffer[" ++ show bufSize ++ "]={0};"
         , "  uint8_t * p = buffer;"
@@ -175,6 +154,8 @@ instance CompileTarget 'TargetC99 where
           [ concatMap (\i -> indent 2 "*p = *p + " ++ show i) is
           , indent 2 "*p = 0;"
           ]
+
+        Halt -> "exit(1);"
 
   compile _ (SSource source) = do
     out <- asks output
